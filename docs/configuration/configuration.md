@@ -4240,6 +4240,26 @@ with this feature.
   #
   # This is an experimental feature, this behaviour could change or be removed in the future.
   [ percentage: <uint> | default = 0 ]
+
+  # Per-metric retention time overrides. Each entry defines a shorter retention
+  # time for time series matching any of the listed PromQL metric selectors.
+  # Overrides only apply to data that has been written to blocks; they do not
+  # extend retention beyond the global retention time.
+  per_metric:
+    [ - <per_metric_retention> ]
+```
+
+### `<per_metric_retention>`
+
+```yaml
+# PromQL metric selectors that identify the series this rule applies to.
+# A series matches the rule if it satisfies any one of the selectors.
+matchers:
+  [ - <string> ]
+
+# Retention time for matching series. Must be greater than or equal to 0.
+# A value of 0 disables this override.
+[ time: <duration> | default = 0 ]
 ```
 
 ### `<exemplars>`

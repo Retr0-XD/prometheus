@@ -40,6 +40,7 @@ import (
 	"github.com/prometheus/prometheus/discovery"
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/model/relabel"
+	"github.com/prometheus/prometheus/promql/parser"
 	"github.com/prometheus/prometheus/storage/remote/azuread"
 	"github.com/prometheus/prometheus/storage/remote/googleiam"
 )
@@ -1131,6 +1132,54 @@ type TSDBRetentionConfig struct {
 
 	// Maximum percentage of disk used for TSDB storage.
 	Percentage float64 `yaml:"percentage,omitempty"`
+
+	// PerMetric configures per-metric retention time overrides.
+	PerMetric []PerMetricRetentionConfig `yaml:"per_metric,omitempty"`
+}
+
+// PerMetricRetentionConfig configures a per-metric retention time override.
+// A zero Time means no per-metric override.
+type PerMetricRetentionConfig struct {
+	// Matchers is a list of PromQL metric selector strings. A series matches
+	// the rule if it satisfies any one of the selectors.
+	Matchers []string `yaml:"matchers,omitempty"`
+
+	// Time is the per-metric retention time. Zero means no per-metric override.
+	Time model.Duration `yaml:"time,omitempty"`
+
+	// matcherSets caches the matchers parsed from Matchers. It is not exported
+	// or serialized.
+	matcherSets [][]*labels.Matcher
+}
+
+// parseMetricSelector parses a single PromQL metric selector string.
+func parseMetricSelector(input string) ([]*labels.Matcher, error) {
+	return parser.NewParser(parser.Options{}).ParseMetricSelector(input)
+}
+
+// Matchers returns the parsed matcher sets for the rule.
+func (c *PerMetricRetentionConfig) Matchers() [][]*labels.Matcher {
+	return c.matcherSets
+}
+
+// Matches reports whether the given series labels satisfy any of the rule's
+// metric selectors.
+func (c *PerMetricRetentionConfig) Matches(lbls labels.Labels) bool {
+	for _, matchers := range c.matcherSets {
+		if matchesAll(matchers, lbls) {
+			return true
+		}
+	}
+	return false
+}
+
+func matchesAll(matchers []*labels.Matcher, lbls labels.Labels) bool {
+	for _, m := range matchers {
+		if !m.Matches(lbls.Get(m.Name)) {
+			return false
+		}
+	}
+	return true
 }
 
 // UnmarshalYAML implements the yaml.Unmarshaler interface.
@@ -1145,6 +1194,25 @@ func (t *TSDBRetentionConfig) UnmarshalYAML(unmarshal func(any) error) error {
 	}
 	if t.Percentage < 0 || t.Percentage > 100 {
 		return fmt.Errorf("'storage.tsdb.retention.percentage' must be in the range [0, 100], got %v", t.Percentage)
+	}
+	for i, perMetric := range t.PerMetric {
+		if len(perMetric.Matchers) == 0 {
+			return fmt.Errorf("'storage.tsdb.retention.per_metric[%d].matchers' must have at least one matcher", i)
+		}
+		for j, matcher := range perMetric.Matchers {
+			matchers, err := parseMetricSelector(matcher)
+			if err != nil {
+				return fmt.Errorf("failed to parse 'storage.tsdb.retention.per_metric[%d].matchers[%d]' %q: %w", i, j, matcher, err)
+			}
+			if len(matchers) == 0 {
+				return fmt.Errorf("'storage.tsdb.retention.per_metric[%d].matchers[%d]' %q must produce at least one matcher", i, j, matcher)
+			}
+			perMetric.matcherSets = append(perMetric.matcherSets, matchers)
+		}
+		t.PerMetric[i] = perMetric
+		if perMetric.Time < 0 {
+			return fmt.Errorf("'storage.tsdb.retention.per_metric[%d].time' must be greater than or equal to 0, got %v", i, perMetric.Time)
+		}
 	}
 	return nil
 }

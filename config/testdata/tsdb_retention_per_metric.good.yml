@@ -1,0 +1,7 @@
+storage:
+  tsdb:
+    retention:
+      per_metric:
+        - matchers:
+            - '{__name__="foo"}'
+          time: 7d

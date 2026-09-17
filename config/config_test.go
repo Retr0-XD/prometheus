@@ -2790,6 +2790,18 @@ var expectedErrors = []struct {
 		errMsg:   "'storage.tsdb.retention.percentage' must be in the range [0, 100]",
 	},
 	{
+		filename: "tsdb_retention_per_metric_no_matchers.bad.yml",
+		errMsg:   "'storage.tsdb.retention.per_metric[0].matchers' must have at least one matcher",
+	},
+	{
+		filename: "tsdb_retention_per_metric_invalid_matcher.bad.yml",
+		errMsg:   "failed to parse 'storage.tsdb.retention.per_metric[0].matchers[0]'",
+	},
+	{
+		filename: "tsdb_retention_per_metric_negative_time.bad.yml",
+		errMsg:   "'storage.tsdb.retention.per_metric[0].time' must be greater than or equal to 0",
+	},
+	{
 		filename: "tsdb_chunk_encoding_floats.bad.yml",
 		errMsg:   `'storage.tsdb.chunk_encoding.floats' must be 'xor' or 'xor2', or the field must be omitted entirely, got "xor3"`,
 	},
@@ -2819,6 +2831,22 @@ func TestTSDBRetentionPercentageFloat(t *testing.T) {
 	c, err := LoadFile("testdata/tsdb_retention_percentage_float.good.yml", false, promslog.NewNopLogger())
 	require.NoError(t, err)
 	require.Equal(t, 0.5, c.StorageConfig.TSDBConfig.Retention.Percentage)
+}
+
+func TestPerMetricRetentionConfig(t *testing.T) {
+	c, err := LoadFile("testdata/tsdb_retention_per_metric.good.yml", false, promslog.NewNopLogger())
+	require.NoError(t, err)
+	require.Len(t, c.StorageConfig.TSDBConfig.Retention.PerMetric, 1)
+
+	rule := c.StorageConfig.TSDBConfig.Retention.PerMetric[0]
+	require.Equal(t, model.Duration(7*24*time.Hour), rule.Time)
+	require.Len(t, rule.Matchers(), 1)
+
+	matching := labels.FromStrings("__name__", "foo")
+	require.True(t, rule.Matches(matching))
+
+	nonMatching := labels.FromStrings("__name__", "bar")
+	require.False(t, rule.Matches(nonMatching))
 }
 
 func TestTSDBChunkEncoding(t *testing.T) {

@@ -1,0 +1,6 @@
+storage:
+  tsdb:
+    retention:
+      per_metric:
+        - matchers: []
+          time: 7d
